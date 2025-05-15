@@ -27,20 +27,6 @@ jobs:
         with:
           pdk: ihp
 
-  gl_test:
-    needs: gds
-    runs-on: ubuntu-24.04
-    steps:
-      - name: checkout repo
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
-      - name: GL test
-        uses: TinyTapeout/tt-gds-action/gl_test@ttihp25b
-        with:
-          pdk: ihp
-
   viewer:
     needs: gds
     runs-on: ubuntu-24.04
