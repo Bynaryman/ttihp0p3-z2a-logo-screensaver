@@ -58,12 +58,13 @@ def main():
     die_area = tile_sizes[tiles]
 
     def_suffix = "pg" if pdk == "sky130A" else "pgvdd"
-    # If ensure_tt_assets couldn't copy a DEF (e.g. .tt-tools missing), fall back
-    # to the expected tt_assets path. Avoid treating Path('.') as truthy here.
+    # Compute path relative to the location of config_merged.json (src/)
     if copied_def and copied_def.is_file():
-        def_template = f"dir::{copied_def.relative_to(project_root)}"
+        def_rel = Path(os.path.relpath(copied_def, start=src_dir))
+        def_template = f"dir::{def_rel.as_posix()}"
     else:
-        def_template = f"dir::tt_assets/tt_block_{tiles}_{def_suffix}.def"
+        def_rel = Path("..") / "tt_assets" / f"tt_block_{tiles}_{def_suffix}.def"
+        def_template = f"dir::{def_rel.as_posix()}"
 
     user_cfg = {
         "DESIGN_NAME": top,
