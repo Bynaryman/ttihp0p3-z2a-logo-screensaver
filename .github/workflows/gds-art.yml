@@ -1,0 +1,148 @@
+name: GDS Art
+
+on:
+  workflow_dispatch:
+    inputs:
+      image:
+        description: "Path (in repo) or URL to PNG/JPG to rasterize"
+        required: true
+        type: string
+      grid:
+        description: "Grid columns (rows by aspect)"
+        required: false
+        default: 40
+        type: number
+      threshold:
+        description: "Luminance threshold (0..255)"
+        required: false
+        default: 128
+        type: number
+      invert:
+        description: "Invert selection"
+        required: false
+        default: false
+        type: boolean
+      area_pct:
+        description: "Artwork area as % of core (0..100)"
+        required: false
+        default: 20
+        type: number
+      librelane_image:
+        description: "LibreLane image with plugin (GHCR tag). Leave empty to build locally."
+        required: false
+        default: ""
+        type: string
+      pdk_cache_key:
+        description: "Cache key to persist PDK downloads"
+        required: false
+        default: "v1"
+        type: string
+
+jobs:
+  harden-with-art:
+    runs-on: ubuntu-latest
+    env:
+      PDK_ROOT: ${{ github.workspace }}/pdk
+      WORKDIR: ${{ github.workspace }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Login to GHCR (if using remote image)
+        if: ${{ inputs.librelane_image != '' && startsWith(inputs.librelane_image, 'ghcr.io/') }}
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Restore PDK cache
+        uses: actions/cache@v4
+        with:
+          path: pdk
+          key: pdk-${{ runner.os }}-${{ inputs.pdk_cache_key }}
+
+      - name: Ensure directories
+        run: |
+          mkdir -p "$PDK_ROOT" runs/wokwi
+
+      - name: Build custom LibreLane image (local)
+        if: ${{ inputs.librelane_image == '' }}
+        run: |
+          docker build -t librelane-mock:ci -f docker/librelane-mock/Dockerfile .
+
+      - name: Resolve image input (download if URL)
+        id: img
+        shell: bash
+        run: |
+          set -euo pipefail
+          IN=${{ inputs.image }}
+          if [[ "$IN" =~ ^https?:// ]]; then
+            echo "Downloading $IN"
+            mkdir -p art
+            curl -fsSL "$IN" -o art/ci-art.png
+            echo "path=art/ci-art.png" >> $GITHUB_OUTPUT
+          else
+            echo "path=$IN" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create user_config.json (lightweight)
+        run: |
+          python3 tools/create_user_config.py
+
+      - name: Write art_config.json
+        run: |
+          python3 - << 'PY'
+          import json, os
+          cfg = {
+            "image": os.environ["IMG"],
+            "grid": int(os.environ.get("GRID", 40)),
+            "threshold": int(os.environ.get("THRESHOLD", 128)),
+            "invert": os.environ.get("INVERT", "false").lower() in ("1","true","yes"),
+            "area_pct": float(os.environ.get("AREA_PCT", 20)),
+          }
+          with open("art_config.json","w") as f:
+            json.dump(cfg, f)
+          print("Wrote art_config.json:", cfg)
+          PY
+        env:
+          IMG: ${{ steps.img.outputs.path }}
+          GRID: ${{ inputs.grid }}
+          THRESHOLD: ${{ inputs.threshold }}
+          INVERT: ${{ inputs.invert }}
+          AREA_PCT: ${{ inputs.area_pct }}
+
+      - name: Run LibreLane (ClassicWithArt)
+        shell: bash
+        env:
+          IMAGE: ${{ inputs.librelane_image }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${IMAGE}" ]]; then IMAGE=librelane-mock:ci; fi
+          echo "Using image: $IMAGE"
+          docker run --rm \
+            -v "$WORKDIR:$WORKDIR" -w "$WORKDIR" \
+            -v "$PDK_ROOT:$PDK_ROOT" -e PDK_ROOT="$PDK_ROOT" \
+            "$IMAGE" \
+            python3 -m librelane --pdk-root "$PDK_ROOT" \
+              --run-tag wokwi --force-run-dir runs/wokwi \
+              -f ClassicWithArt src/config_merged.json
+
+      - name: Save PDK cache (post)
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: pdk
+          key: pdk-${{ runner.os }}-${{ inputs.pdk_cache_key }}
+
+      - name: Upload artifacts (final GDS/LEF and preview)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gds-artifacts
+          path: |
+            runs/wokwi/final/gds/*
+            runs/wokwi/final/lef/*
+            runs/wokwi/final/*metrics*
+            runs/wokwi/*-odb-applyart/art_preview.png
+            runs/wokwi/*/*.log

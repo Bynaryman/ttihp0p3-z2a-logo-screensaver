@@ -3,7 +3,7 @@ project:
   title:        "VGA Screensaver with Zero to ASIC Logo"      # Project title
   author:       "Matt Venn, Louis Ledoux"      # Your name
   discord:      "binaryman#9502"      # Your discord username, for communication and automatically assigning you a Tapeout role (optional)
-  description:  "VGA screensaver (640x480) bouncing the Zero to ASIC logo, with chip‑art placement shaping"      # One line description of what your project does
+  description:  "VGA Zero to ASIC Logo bouncing around the screen meta shaped chip"      # One line description of what your project does
   language:     "Verilog" # other examples include SystemVerilog, Amaranth, VHDL, etc
   clock_hz:     25175000       # Clock frequency in Hz (or 0 if not applicable)
 
