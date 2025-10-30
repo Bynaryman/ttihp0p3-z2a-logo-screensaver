@@ -42,7 +42,8 @@ def main():
     top = proj["top_module"]
     sources = proj["source_files"]
     tiles = proj["tiles"]
-    pdk = "sky130A"  # default TT PDK
+    # PDK selection from env to align with CI and local overrides
+    pdk = os.environ.get("PDK_NAME", "sky130A")
 
     # Ensure TT assets available for DEF template and tile sizes
     copied_def = ensure_tt_assets(project_root, pdk, tiles)
@@ -57,7 +58,9 @@ def main():
     die_area = tile_sizes[tiles]
 
     def_suffix = "pg" if pdk == "sky130A" else "pgvdd"
-    if copied_def:
+    # If ensure_tt_assets couldn't copy a DEF (e.g. .tt-tools missing), fall back
+    # to the expected tt_assets path. Avoid treating Path('.') as truthy here.
+    if copied_def and copied_def.is_file():
         def_template = f"dir::{copied_def.relative_to(project_root)}"
     else:
         def_template = f"dir::tt_assets/tt_block_{tiles}_{def_suffix}.def"

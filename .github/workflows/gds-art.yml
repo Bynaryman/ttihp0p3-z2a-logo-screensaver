@@ -3,6 +3,12 @@ name: GDS Art
 on:
   workflow_dispatch:
     inputs:
+      pdk:
+        description: "PDK (ihp | sky130 | gf180)"
+        required: false
+        default: "ihp"
+        type: choice
+        options: [ihp, sky130, gf180]
       image:
         description: "Path (in repo) or URL to PNG/JPG to rasterize"
         required: true
@@ -40,7 +46,7 @@ on:
 
 jobs:
   harden-with-art:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
       PDK_ROOT: ${{ github.workspace }}/pdk
       WORKDIR: ${{ github.workspace }}
@@ -87,7 +93,11 @@ jobs:
           fi
 
       - name: Create user_config.json (lightweight)
+        env:
+          # Map input pdk to internal PDK names (sky130A | ihp-sg13g2 | gf180mcuD)
+          PDK_NAME: ${{ fromJSON('{"ihp":"ihp-sg13g2","sky130":"sky130A","gf180":"gf180mcuD"}')[inputs.pdk] }}
         run: |
+          echo "Using PDK_NAME=${PDK_NAME}"
           python3 tools/create_user_config.py
 
       - name: Write art_config.json
@@ -116,15 +126,23 @@ jobs:
         shell: bash
         env:
           IMAGE: ${{ inputs.librelane_image }}
+          SEL_PDK: ${{ inputs.pdk }}
         run: |
           set -euo pipefail
           if [[ -z "${IMAGE}" ]]; then IMAGE=librelane-mock:ci; fi
           echo "Using image: $IMAGE"
+          # Compute LibreLane PDK CLI args to match TinyTapeout action behavior
+          case "${SEL_PDK}" in
+            ihp)   PDK_ARGS="--manual-pdk --pdk ihp-sg13g2" ;;
+            sky130)PDK_ARGS="" ;;
+            gf180) PDK_ARGS="--pdk gf180mcuD" ;;
+            *)     PDK_ARGS="" ;;
+          esac
           docker run --rm \
             -v "$WORKDIR:$WORKDIR" -w "$WORKDIR" \
             -v "$PDK_ROOT:$PDK_ROOT" -e PDK_ROOT="$PDK_ROOT" \
             "$IMAGE" \
-            python3 -m librelane --pdk-root "$PDK_ROOT" \
+            python3 -m librelane --pdk-root "$PDK_ROOT" $PDK_ARGS \
               --run-tag wokwi --force-run-dir runs/wokwi \
               -f ClassicWithArt src/config_merged.json
 
@@ -146,3 +164,21 @@ jobs:
             runs/wokwi/final/*metrics*
             runs/wokwi/*-odb-applyart/art_preview.png
             runs/wokwi/*/*.log
+
+  precheck:
+    needs: harden-with-art
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Run Tiny Tapeout Precheck
+        uses: TinyTapeout/tt-gds-action/precheck@ttihp25b
+        with:
+          pdk: ${{ inputs.pdk }}
+
+  viewer:
+    needs: harden-with-art
+    runs-on: ubuntu-24.04
+    permissions:
+      pages: write
+      id-token: write
+    steps:
+      - uses: TinyTapeout/tt-gds-action/viewer@ttihp25b
