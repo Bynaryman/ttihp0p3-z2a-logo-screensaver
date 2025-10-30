@@ -241,11 +241,11 @@ jobs:
           print('Assembled tt_submission contents:', sorted(p.name for p in out.iterdir()))
           PY
 
-      - name: Upload tt_submission artifact
+      - name: Upload tt_submission_art artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: tt_submission
+          name: tt_submission_art
           path: tt_submission
 
       - name: Save PDK cache (post)
@@ -267,23 +267,19 @@ jobs:
             runs/wokwi/*-odb-applyart/art_preview.png
             runs/wokwi/*/*.log
 
-  render:
+  build-gds:
     needs: harden-with-art
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout (for action context)
         uses: actions/checkout@v4
-      - name: Download tt_submission artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: tt_submission
-      - name: Render viewer assets (gds_render)
-        uses: TinyTapeout/tt-gds-action/render@ttihp25b
+      - name: Build GDS (standard) to produce gds_render
+        uses: TinyTapeout/tt-gds-action@ttihp25b
         with:
           pdk: ${{ inputs.pdk }}
 
   viewer:
-    needs: [harden-with-art, render]
+    needs: [harden-with-art, build-gds]
     runs-on: ubuntu-24.04
     permissions:
       pages: write
