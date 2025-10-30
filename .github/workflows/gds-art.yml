@@ -267,20 +267,30 @@ jobs:
             runs/wokwi/*-odb-applyart/art_preview.png
             runs/wokwi/*/*.log
 
-  precheck:
+  render:
     needs: harden-with-art
     runs-on: ubuntu-24.04
     steps:
-      - name: Run Tiny Tapeout Precheck
-        uses: TinyTapeout/tt-gds-action/precheck@ttihp25b
+      - name: Checkout (for action context)
+        uses: actions/checkout@v4
+      - name: Download tt_submission artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: tt_submission
+      - name: Render viewer assets (gds_render)
+        uses: TinyTapeout/tt-gds-action/render@ttihp25b
         with:
           pdk: ${{ inputs.pdk }}
 
   viewer:
-    needs: harden-with-art
+    needs: [harden-with-art, render]
     runs-on: ubuntu-24.04
     permissions:
       pages: write
       id-token: write
     steps:
-      - uses: TinyTapeout/tt-gds-action/viewer@ttihp25b
+      - name: Run Tiny Tapeout Viewer
+        uses: TinyTapeout/tt-gds-action/viewer@ttihp25b
+        env:
+          # Force process selection to match input PDK
+          PROCESS: ${{ fromJSON('{"ihp":"SG13G2","sky130":"SKY130","gf180":"GF180"}')[inputs.pdk] }}
