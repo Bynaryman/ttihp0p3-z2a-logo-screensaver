@@ -146,6 +146,78 @@ jobs:
               --run-tag wokwi --force-run-dir runs/wokwi \
               -f ClassicWithArt src/config_merged.json
 
+      - name: Assemble tt_submission artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - << 'PY'
+          import json, os, shutil
+          from pathlib import Path
+
+          root = Path('.')
+          run_dir = root / 'runs' / 'wokwi'
+          final = run_dir / 'final'
+          if not final.exists():
+            raise SystemExit('final directory not found: ' + str(final))
+
+          # Determine top module
+          top = None
+          cfg = root / 'src' / 'config_merged.json'
+          if cfg.exists():
+            with cfg.open() as f:
+              data = json.load(f)
+              top = data.get('DESIGN_NAME')
+          if not top:
+            # Fallback to info.yaml parsing (minimal)
+            import yaml
+            with (root / 'info.yaml').open() as f:
+              info = yaml.safe_load(f)
+              top = info['project']['top_module']
+
+          out = root / 'tt_submission'
+          out.mkdir(exist_ok=True)
+
+          # Copy basic files
+          def cp_maybe(src: Path, dst: Path|None=None):
+            if src.exists():
+              if dst is None:
+                dst = out / src.name
+              shutil.copyfile(src, dst)
+
+          cp_maybe(run_dir / 'resolved.json')
+          cp_maybe(final / 'commit_id.json')
+
+          # GDS/LEF
+          gds = final / 'gds' / f'{top}.gds'
+          lef = final / 'lef' / f'{top}.lef'
+          cp_maybe(gds, out / f'{top}.gds')
+          cp_maybe(lef, out / f'{top}.lef')
+
+          # Netlist: try pnl then nl
+          for sub in ('pnl', 'nl'):
+            cand = final / sub / f'{top}.{sub}.v'
+            if cand.exists():
+              cp_maybe(cand, out / f'{top}.v')
+              break
+
+          # Metrics and synthesis stats if present
+          cp_maybe(final / 'metrics.csv')
+          # Try to locate synthesis stat report
+          import glob
+          sy = glob.glob(str(root / 'runs' / 'wokwi' / '*-yosys-synthesis' / 'reports' / 'stat.rpt'))
+          if sy:
+            shutil.copyfile(Path(sy[0]), out / 'synthesis-stats.txt')
+
+          print('Assembled tt_submission contents:', sorted(p.name for p in out.iterdir()))
+          PY
+
+      - name: Upload tt_submission artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tt_submission
+          path: tt_submission
+
       - name: Save PDK cache (post)
         if: always()
         uses: actions/cache/save@v4
