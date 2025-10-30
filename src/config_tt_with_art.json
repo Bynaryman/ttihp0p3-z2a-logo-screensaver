@@ -1,0 +1,7 @@
+{
+  "meta": {
+    "substituting_steps": {
+      "OpenROAD.GlobalPlacementSkipIO": "Mock.OpenROADPassthrough"
+    }
+  }
+}
