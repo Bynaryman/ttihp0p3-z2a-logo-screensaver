@@ -10,8 +10,6 @@ jobs:
     steps:
       - name: checkout repo
         uses: actions/checkout@v4
-        with:
-          submodules: recursive
 
       - name: Build GDS
         uses: TinyTapeout/tt-gds-action@ttihp25b
