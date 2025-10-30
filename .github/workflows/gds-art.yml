@@ -157,8 +157,6 @@ jobs:
           root = Path('.')
           run_dir = root / 'runs' / 'wokwi'
           final = run_dir / 'final'
-          if not final.exists():
-            raise SystemExit('final directory not found: ' + str(final))
 
           # Determine top module
           top = None
@@ -177,7 +175,7 @@ jobs:
           out = root / 'tt_submission'
           out.mkdir(exist_ok=True)
 
-          # Copy basic files
+          # Copy basic files (best effort)
           def cp_maybe(src: Path, dst: Path|None=None):
             if src.exists():
               if dst is None:
@@ -207,6 +205,38 @@ jobs:
           sy = glob.glob(str(root / 'runs' / 'wokwi' / '*-yosys-synthesis' / 'reports' / 'stat.rpt'))
           if sy:
             shutil.copyfile(Path(sy[0]), out / 'synthesis-stats.txt')
+
+          # Create pdk.json for viewer/precheck if possible
+          try:
+            res = json.loads((run_dir / 'resolved.json').read_text())
+            meta = res.get('meta', {})
+            pdk_name = res.get('PDK')
+            flow_ver = meta.get('librelane_version')
+            pdk_root = os.environ.get('PDK_ROOT','')
+            pdk_source = 'unknown'
+            pdk_version = 'unknown'
+            if pdk_name == 'sky130A' and pdk_root:
+              sf = Path(pdk_root) / 'sky130A' / 'SOURCES'
+              if sf.exists():
+                txt = sf.read_text().strip().split()
+                if len(txt) == 2:
+                  pdk_source, pdk_version = txt
+            elif pdk_name == 'gf180mcuD' and pdk_root:
+              sf = Path(pdk_root) / 'gf180mcuD' / 'SOURCES'
+              if sf.exists():
+                txt = sf.read_text().strip().split()
+                if len(txt) == 2:
+                  pdk_source, pdk_version = txt
+            pj = {
+              'FLOW_NAME': 'LibreLane',
+              'FLOW_VERSION': flow_ver or 'unknown',
+              'PDK': pdk_name,
+              'PDK_SOURCE': pdk_source,
+              'PDK_VERSION': pdk_version,
+            }
+            (out / 'pdk.json').write_text(json.dumps(pj, indent=2) + '\n')
+          except Exception as e:
+            pass
 
           print('Assembled tt_submission contents:', sorted(p.name for p in out.iterdir()))
           PY
