@@ -80,6 +80,9 @@ class ClassicWithArt(SequentialFlow):
             thr = os.getenv("TT_ART_THRESHOLD")
             inv = os.getenv("TT_ART_INVERT")
             pct = os.getenv("TT_ART_AREA_PCT")
+            mode = os.getenv("TT_ART_MODE")
+            route_layer = os.getenv("TT_ART_ROUTE_LAYER")
+            route_layers_csv = os.getenv("TT_ART_ROUTE_LAYERS")
 
             # If not present, try a config file created by tt_tool at project root
             if not any([img, grid, thr, inv, pct]):
@@ -113,6 +116,15 @@ class ClassicWithArt(SequentialFlow):
                 cmd += ["--invert"]
             if pct:
                 cmd += ["--area-pct", pct]
+            if mode:
+                cmd += ["--mode", mode]
+            if route_layer:
+                cmd += ["--route-layer", route_layer]
+            if route_layers_csv:
+                for part in route_layers_csv.split(","):
+                    part = part.strip()
+                    if part:
+                        cmd += ["--route-layers", part]
             return cmd
 
     _steps.insert(insert_idx, ApplyArt)

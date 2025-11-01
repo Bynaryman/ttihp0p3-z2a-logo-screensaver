@@ -18,8 +18,26 @@ except Exception:  # pragma: no cover
 @click.option("--threshold", type=int, default=128, show_default=True, help="Luminance threshold [0..255]")
 @click.option("--invert", is_flag=True, default=False, help="Invert selection (treat dark as blocked)")
 @click.option("--area-pct", type=float, default=20.0, show_default=True, help="Artwork scale as percentage of core (0..100)")
+@click.option(
+    "--mode",
+    type=click.Choice(["soft", "hard", "route"], case_sensitive=False),
+    default="soft",
+    show_default=True,
+    help="Blockage type: placement soft, placement hard, or routing obstruction",
+)
+@click.option(
+    "--route-layer",
+    type=str,
+    default=None,
+    help="Deprecated: single routing layer (use --route-layers)",
+)
+@click.option(
+    "--route-layers",
+    multiple=True,
+    help="Routing layer names for obstructions (repeat or comma-separated)",
+)
 @click_odb
-def main(input_db, reader, image, grid, threshold, invert, area_pct, **_):
+def main(input_db, reader, image, grid, threshold, invert, area_pct, mode, route_layer, route_layers, **_):
     """
     In-place ODB edit:
     - Print core and die sizes/areas
@@ -59,6 +77,53 @@ def main(input_db, reader, image, grid, threshold, invert, area_pct, **_):
     cx = (core.xMin() + core.xMax()) // 2
     cy = (core.yMin() + core.yMax()) // 2
 
+    def create_placement_blockage(llx, lly, urx, ury):
+        if odb is None:
+            return
+        blk = odb.dbBlockage_create(block, llx, lly, urx, ury)  # type: ignore
+        if mode.lower() == "soft" and hasattr(blk, "setSoft"):
+            blk.setSoft()  # type: ignore
+
+    def find_layer_by_name(tech_obj, name: str):
+        try:
+            lyr = tech_obj.findLayer(name)
+            if lyr:
+                return lyr
+        except Exception:
+            pass
+        for lyr in tech_obj.getLayers():
+            try:
+                if lyr.getName() == name:
+                    return lyr
+            except Exception:
+                continue
+        return None
+
+    # Normalize route layers: accept --route-layer or --route-layers and CSV
+    route_layer_list = []
+    if route_layer:
+        route_layer_list.append(route_layer)
+    for rl in route_layers or ():
+        route_layer_list.extend([p.strip() for p in rl.split(",") if p.strip()])
+
+    def create_route_obstruction(llx, lly, urx, ury):
+        if odb is None:
+            return
+        if not route_layer_list:
+            return
+        for rl in route_layer_list:
+            lyr = find_layer_by_name(tech, rl)
+            if lyr is None:
+                raise click.ClickException(f"ApplyArt: route layer '{rl}' not found in tech")
+            try:
+                odb.dbObstruction_create(block, lyr, llx, lly, urx, ury)  # type: ignore
+            except Exception as e:
+                raise click.ClickException(f"ApplyArt: failed to create route obstruction on {rl}: {e}")
+
+    # Decide what to create per cell
+    want_place = mode.lower() in ("soft", "hard")
+    want_route = (mode.lower() == "route") or bool(route_layer_list)
+
     # If an image is provided, decompose it into grid blockages
     if image:
         try:
@@ -68,7 +133,14 @@ def main(input_db, reader, image, grid, threshold, invert, area_pct, **_):
             reader.design.writeDb(input_db)
             return
 
-        img = Image.open(image).convert("L")
+        try:
+            img = Image.open(image).convert("L")
+        except FileNotFoundError:
+            from click import ClickException as _CE  # type: ignore
+            raise _CE(f"ApplyArt: image not found: {image} (use absolute path or ensure it is mounted)")
+        except Exception as e:  # UnidentifiedImageError or other PIL errors
+            from click import ClickException as _CE  # type: ignore
+            raise _CE(f"ApplyArt: cannot open image '{image}': {e}. Re-save as PNG/JPG (8-bit) and retry.")
         img = ImageOps.flip(img)
         iw, ih = img.size
         cols = max(1, grid)
@@ -109,10 +181,10 @@ def main(input_db, reader, image, grid, threshold, invert, area_pct, **_):
                 lly = offset_y + r * cell_h
                 urx = llx + cell_w
                 ury = lly + cell_h
-                if odb is not None:
-                    blk = odb.dbBlockage_create(block, llx, lly, urx, ury)  # type: ignore
-                    if hasattr(blk, "setSoft"):
-                        blk.setSoft()  # type: ignore
+                if want_place:
+                    create_placement_blockage(llx, lly, urx, ury)
+                if want_route:
+                    create_route_obstruction(llx, lly, urx, ury)
                 placed += 1
                 # mark cell in preview
                 px0 = c * preview_scale
