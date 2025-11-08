@@ -83,6 +83,17 @@ def main(input_db, reader, image, grid, threshold, invert, area_pct, mode, route
         blk = odb.dbBlockage_create(block, llx, lly, urx, ury)  # type: ignore
         if mode.lower() == "soft" and hasattr(blk, "setSoft"):
             blk.setSoft()  # type: ignore
+        elif mode.lower() == "hard":
+            if hasattr(blk, "setSoft"):
+                try:
+                    blk.setSoft(False)  # type: ignore[arg-type]
+                except TypeError:
+                    pass
+            if hasattr(blk, "setMaxDensity"):
+                try:
+                    blk.setMaxDensity(0.0)  # type: ignore[attr-defined]
+                except Exception:
+                    pass
 
     def find_layer_by_name(tech_obj, name: str):
         try:
@@ -123,6 +134,9 @@ def main(input_db, reader, image, grid, threshold, invert, area_pct, mode, route
     # Decide what to create per cell
     want_place = mode.lower() in ("soft", "hard")
     want_route = (mode.lower() == "route") or bool(route_layer_list)
+    print(
+        f"[ApplyArt] Mode={mode} placement={'yes' if want_place else 'no'} routing_layers={route_layer_list}"
+    )
 
     # If an image is provided, decompose it into grid blockages
     if image:
@@ -169,8 +183,12 @@ def main(input_db, reader, image, grid, threshold, invert, area_pct, mode, route
             y1 = int((r + 1) * ih / rows)
             for c in range(cols):
                 x0 = int(c * iw / cols)
-                x1 = int((c + 1) * ih / rows) if False else int((c + 1) * iw / cols)
+                x1 = int((c + 1) * iw / cols)
+                if x1 <= x0 or y1 <= y0:
+                    continue
                 region = img.crop((x0, y0, x1, y1))
+                if region.width == 0 or region.height == 0:
+                    continue
                 lum = ImageStat.Stat(region).mean[0]
                 on = lum >= threshold
                 if invert:
